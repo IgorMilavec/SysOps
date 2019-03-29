@@ -1,5 +1,5 @@
 #Requires -Version 3
-# powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1"
+# powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60
 param(
 	[Parameter(Mandatory=$false)]
 	[int]$timeInterval = 60,
@@ -50,21 +50,17 @@ function Get-WindowsStatusDescription
 	}
 }
 
+function Format-Event
+{
+	[CmdletBinding()]
+	Param (
+	        [Parameter(Mandatory=$True,ValueFromPipeline=$True)]
+        	[PSObject[]]$InputObject
+	)
 
-$Milliseconds = $timeInterval * 60000
-[xml]$FilterXML = @"
-<QueryList><Query Id="0" Path="Security"><Select Path="Security">
-*[System[(EventID=4768 or EventID=4771 or EventID=4776) and TimeCreated[timediff(@SystemTime) &lt;= $Milliseconds]]]
-</Select></Query></QueryList>
-"@
-
-$domainControllers = @(Get-ADDomainController -Filter * | Select-Object @{Name="FQDN";Expression={($_.Name + '.' + $_.Domain).ToLower()}} | Select-Object -ExpandProperty FQDN)
-
-$events = @($domainControllers | %{
-	Write-Host Fetching from $_ ...
-	Get-WinEvent -ComputerName $_ -FilterXml $FilterXML -MaxEvents 100 | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | %{
-		$event = $_
-
+process {
+	foreach ($event in $InputObject)
+	{
 		$object = New-Object –TypeName PSObject
 		$object | Add-Member –MemberType NoteProperty –Name TimeCreated –Value $event.TimeCreated
 		$object | Add-Member –MemberType NoteProperty –Name ControllerName –Value $event.MachineName
@@ -110,11 +106,27 @@ $events = @($domainControllers | %{
 			}
 		}
 
-		if (-not ($domainControllers -contains $object.MachineName))
-		{
-			Write-Output $object
-		}
+		Write-Output $object
 	}
+}
+}
+
+$endTime = Get-Date
+$startTime = $endTime.AddMinutes(-$timeInterval)
+$filter = @{
+	ProviderName="Microsoft-Windows-Security-Auditing";
+	LogName="Security”;
+	ID=4768,4771,4776;
+	Keywords=4503599627370496; # Audit Failure
+	StartTime=$startTime;
+	EndTime=$endTime
+}
+
+$domainControllers = @(Get-ADDomainController -Filter * | Select-Object @{Name="FQDN";Expression={($_.Name + '.' + $_.Domain).ToLower()}} | Select-Object -ExpandProperty FQDN)
+
+$events = @($domainControllers | %{
+	Write-Host Fetching from $_ ...
+	Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
 })
 
 if ($events.Length -gt 0)
@@ -126,15 +138,17 @@ if ($events.Length -gt 0)
 	}
 	else
 	{
-		$events = @(
+		$report = @(
 			$events | 
 			Sort-Object TimeCreated | 
 			Group-Object -Property UserName,MachineName,StatusDescription | 
-			Select-Object -Property @{Name="TimeCreated"; Expression = {$_.Group[0].TimeCreated}},@{Name="UserName"; Expression = {$_.Group[0].UserName}},@{Name="MachineName"; Expression = {$_.Group[0].MachineName}},@{Name="StatusDescription"; Expression = {$_.Group[0].StatusDescription}},Count)
+			Select-Object -Property @{Name="User name"; Expression = {$_.Group[0].UserName}},@{Name="Computer name"; Expression = {$_.Group[0].MachineName}},@{Name="Status"; Expression = {$_.Group[0].StatusDescription}},Count |
+			Sort-Object Count -Descending
+		)
 
 		Write-Host Sending mail...
 		$anonymousCredentials = New-Object System.Management.Automation.PSCredential("anonymous",(ConvertTo-SecureString -String "anonymous" -AsPlainText -Force))
-		$mailBody = $events | Sort-Object TimeCreated | Select-Object TimeCreated,UserName,MachineName,StatusDescription,Count | ConvertTo-HTML -Head "<style>table{font-family:Verdana;font-size:10pt;}</style>"| Out-String
+		$mailBody = $report | ConvertTo-HTML -Head "<style>p,table {font-family:Verdana;font-size:10pt;} td:nth-child(4) {text-align: right;}</style>" -PreContent "<p>List of failed logon attempts between $(Get-Date $startTime -Format "HH:mm") and $(Get-Date $endTime -Format "HH:mm"):</p>" | Out-String
 		Send-MailMessage -From $mailFrom -To ($mailTo -split ",") -Subject "W $($env:ComputerName) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
 	}
 }
