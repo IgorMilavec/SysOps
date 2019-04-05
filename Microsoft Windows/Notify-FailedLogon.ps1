@@ -1,5 +1,20 @@
 #Requires -Version 3
-# powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60
+#Requires -Modules @{ ModuleName="ActiveDirectory"; ModuleVersion="1.0.0" }
+<#
+
+.DESCRIPTION
+ Gather the logon failure events from all the domain controllers.
+
+.EXAMPLE
+
+ powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60
+ This command will gather the logs and display them on the console.
+
+ powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60 sender@domain.com recipient@domain.com
+ This command will gather logs and send a report e-mail. A DNS alias "smtp" must exist that points to a local MX.
+
+#>
+
 param(
 	[Parameter(Mandatory=$false)]
 	[int]$timeInterval = 60,
@@ -11,7 +26,6 @@ param(
 	[string]$mailTo
 )
 Set-StrictMode -Version 2.0
-Import-Module ActiveDirectory -ErrorAction Stop
 
 function Get-KerberosStatusDescription
 {
@@ -124,31 +138,51 @@ $filter = @{
 
 $domainControllers = @(Get-ADDomainController -Filter * | Select-Object @{Name="FQDN";Expression={($_.Name + '.' + $_.Domain).ToLower()}} | Select-Object -ExpandProperty FQDN)
 
+$gatherErrors = @()
 $events = @($domainControllers | %{
 	Write-Host Fetching from $_ ...
-	Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
+	Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 -ErrorVariable Err | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
+	if ($Err -ne $null)
+	{
+		$gatherErrors += New-Object PSObject -Property @{
+			"ControllerName" = $_
+			"Status" = $Err.Message
+		}
+	}
 })
 
-if ($events.Length -gt 0)
+if ($mailTo -eq "")
 {
-	#Filter duplicate events
-	if ($mailTo -eq "")
+	$events | Sort-Object TimeCreated | Select-Object TimeCreated,UserName,MachineName,StatusDescription | Format-Table -AutoSize
+}
+else
+{
+	$mailBody = $null
+
+	if ($gatherErrors.Length -gt 0)
 	{
-		$events | Sort-Object TimeCreated | Select-Object TimeCreated,UserName,MachineName,StatusDescription | ft
+		$mailBody += $gatherErrors |
+			Sort-Object ControllerName |
+			Select-Object -Property @{Name="Controller name"; Expression = {$_.ControllerName}},Status |
+			ConvertTo-HTML -Fragment -PreContent "<p style='color: red'>Failed to gather logs from:</p>" | 
+			Out-String
 	}
-	else
+
+	if ($events.Length -gt 0)
 	{
-		$report = @(
-			$events | 
-			Sort-Object TimeCreated | 
+		$mailBody += $events | 
 			Group-Object -Property UserName,MachineName,StatusDescription | 
 			Select-Object -Property @{Name="User name"; Expression = {$_.Group[0].UserName}},@{Name="Computer name"; Expression = {$_.Group[0].MachineName}},@{Name="Status"; Expression = {$_.Group[0].StatusDescription}},Count |
-			Sort-Object Count -Descending
-		)
+			Sort-Object Count -Descending |
+			ConvertTo-HTML -Fragment -PreContent "<p>List of failed logon attempts between $(Get-Date $startTime -Format "HH:mm") and $(Get-Date $endTime -Format "HH:mm"):</p>" | 
+			Out-String
+	}
 
+	if ($mailBody -ne $null)
+	{
 		Write-Host Sending mail...
+		$mailBody = "<html>`n<head>`n<style>p,table {font-family:Verdana;font-size:10pt;} td:nth-child(4) {text-align: right;}</style>`n</head>`n<body>`n$($mailBody)`n</body>`n</html>"
 		$anonymousCredentials = New-Object System.Management.Automation.PSCredential("anonymous",(ConvertTo-SecureString -String "anonymous" -AsPlainText -Force))
-		$mailBody = $report | ConvertTo-HTML -Head "<style>p,table {font-family:Verdana;font-size:10pt;} td:nth-child(4) {text-align: right;}</style>" -PreContent "<p>List of failed logon attempts between $(Get-Date $startTime -Format "HH:mm") and $(Get-Date $endTime -Format "HH:mm"):</p>" | Out-String
 		Send-MailMessage -From $mailFrom -To ($mailTo -split ",") -Subject "W $($env:ComputerName) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
 	}
 }
