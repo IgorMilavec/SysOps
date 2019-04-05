@@ -149,11 +149,11 @@ $events = @($domainControllers | %{
 	}
 	catch
 	{
-		$gatherErrors += 
-			New-Object PSObject -Property @{
-				"ControllerName" = $controllerName
-				"Status" = $_.Exception.Message
-			}
+		if ($_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound)
+		{
+			Write-Warning $_
+			$gatherErrors += Select-Object -InputObject $_ -Property @{Name="ControllerName"; Expression = {$controllerName}},@{Name="Status"; Expression = {$_.Exception.Message}}
+		}
 	}
 })
 
