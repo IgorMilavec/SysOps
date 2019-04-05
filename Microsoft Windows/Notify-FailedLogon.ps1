@@ -14,6 +14,11 @@
  powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60 sender@domain.com recipient@domain.com
  This command will gather logs and send a report e-mail. A DNS alias "smtp" must exist that points to a local MX.
 
+.NOTES
+
+ This article might be helpful with setting up appropriate permissions to read the security log:
+ https://support.microsoft.com/en-us/help/323076/how-to-set-event-log-security-locally-or-by-using-group-policy
+
 #>
 
 param(
