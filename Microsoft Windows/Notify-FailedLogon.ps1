@@ -1,5 +1,6 @@
 #Requires -Version 3
 #Requires -Modules @{ ModuleName="ActiveDirectory"; ModuleVersion="1.0.0" }
+#Requires -RunAsAdministrator
 <#
 
 .DESCRIPTION
@@ -140,14 +141,19 @@ $domainControllers = @(Get-ADDomainController -Filter * | Select-Object @{Name="
 
 $gatherErrors = @()
 $events = @($domainControllers | %{
+	$controllerName = $_
 	Write-Host Fetching from $_ ...
-	Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 -ErrorVariable Err | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
-	if ($Err -ne $null)
+	try
 	{
-		$gatherErrors += New-Object PSObject -Property @{
-			"ControllerName" = $_
-			"Status" = $Err.Message
-		}
+		Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 -ErrorAction Stop | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
+	}
+	catch
+	{
+		$gatherErrors += 
+			New-Object PSObject -Property @{
+				"ControllerName" = $controllerName
+				"Status" = $_.Exception.Message
+			}
 	}
 })
 
