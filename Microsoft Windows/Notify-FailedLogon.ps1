@@ -194,6 +194,6 @@ else
 		Write-Host Sending mail...
 		$mailBody = "<html>`n<head>`n<style>p,table {font-family:Verdana;font-size:10pt;} td:nth-child(4) {text-align: right;}</style>`n</head>`n<body>`n$($mailBody)`n</body>`n</html>"
 		$anonymousCredentials = New-Object System.Management.Automation.PSCredential("anonymous",(ConvertTo-SecureString -String "anonymous" -AsPlainText -Force))
-		Send-MailMessage -From $mailFrom -To ($mailTo -split ",") -Subject "W $($env:ComputerName) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
+		Send-MailMessage -From $mailFrom -To ($mailTo -split ",") -Subject "W $((Get-ADDomain).DNSRoot) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
 	}
 }
