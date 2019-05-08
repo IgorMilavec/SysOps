@@ -12,6 +12,9 @@ Inbound connections to Active Directory Domain Controllers
 ## SMB Server
   * 445/tcp
 
+## SNTP Server
+  * 123/udp
+
 ## DCE RPC Locator
   * 135/tcp
 
@@ -28,6 +31,7 @@ A full list including the currently assigned dynamic ports can be obtained runni
 ``` powershell
 Get-NetTCPConnection -OwningProcess (Get-Process -Name lsass | Select-Object -ExpandProperty Id) -State Listen | Select-Object -ExpandProperty LocalPort | Sort-Object -Unique
 ```
+Some of the dynamic ports can be fixed, see [KB224196](https://support.microsoft.com/en-us/help/224196/restricting-active-directory-rpc-traffic-to-a-specific-port).
 
 ## Active Directory Web Services
   * 9389/tcp
