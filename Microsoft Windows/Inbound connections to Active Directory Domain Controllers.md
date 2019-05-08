@@ -20,12 +20,14 @@ Inbound connections to Active Directory Domain Controllers
 
 ## Active Directory Domain Services
   * 88/tcp
+  * 88/udp
   * 389/tcp
   * 636/tcp (tls)
   * 464/tcp
+  * 464/udp
   * 3268/tcp
   * 3269/tcp (tls)
-  * various DCE RPC endpoints with dynamic ports, which have a relatively stable assignment
+  * various DCE RPC endpoints with dynamic ports
 
 A full list including the currently assigned dynamic ports can be obtained running this script on the Domain Controller:
 ``` powershell
