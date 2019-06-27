@@ -20,3 +20,4 @@ FROM    sys.databases
                            AND counter_name = 'Log File(s) Used Size (KB)'
                            AND instance_name <> '_Total'
              ) logstats ON (name = logstats.DatabaseName)
+ORDER BY 1
