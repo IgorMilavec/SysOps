@@ -8,10 +8,10 @@
 
 .EXAMPLE
 
- powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60
+ powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -Command .\Notify-FailedLogon.ps1 60
  This command will gather the logs and display them on the console.
 
- powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -File ".\Notify-FailedLogon.ps1" 60 sender@domain.com recipient@domain.com
+ powershell -ExecutionPolicy ByPass -Noprofile -Noninteractive -Command .\Notify-FailedLogon.ps1 60 sender@domain.com recipient@domain.com
  This command will gather logs and send a report e-mail. A DNS alias "smtp" must exist that points to a local MX.
 
 .NOTES
@@ -22,14 +22,17 @@
 #>
 
 param(
-	[Parameter(Mandatory=$false)]
-	[int]$timeInterval = 60,
+	[Parameter(Position=0, Mandatory=$false)]
+	[int]$TimeInterval = 60,
+
+	[Parameter(Position=1, Mandatory=$false)]
+	[string]$MailFrom, 
+
+	[Parameter(Position=2, Mandatory=$false)]
+	[string[]]$MailTo,
 
 	[Parameter(Mandatory=$false)]
-	[string]$mailFrom, 
-
-	[Parameter(Mandatory=$false)]
-	[string]$mailTo
+	[string[]]$IgnoreUsers
 )
 Set-StrictMode -Version 2.0
 
@@ -42,10 +45,10 @@ function Get-KerberosStatusDescription
 
 	switch ($Number)
 	{
-		0x06 { "Account not found"; break }
+		0x06 { "Unknown username or bad password"; break }
 		0x12 { "Account disabled, expired or locked out"; break }
 		0x17 { "Password has expired"; break }
-		0x18 { "Bad password"; break }
+		0x18 { "Unknown username or bad password"; break }
 		0x19 { "Additional pre-authentication required"; break }
 		0x20 { "Ticket expired"; break }
 		default { "$_"; break}
@@ -61,10 +64,11 @@ function Get-WindowsStatusDescription
 
 	switch ($Number)
 	{
-		-1073741724 { "Account not found"; break }
+		-1073741724 { "Unknown username or bad password"; break }
 		-1073741260 { "Account disabled, expired or locked out"; break }
 		-1073741711 { "Password has expired"; break }
-		-1073741718 { "Bad password"; break }
+		-1073741714 { "Unknown username or bad password"; break }
+		-1073741718 { "Unknown username or bad password"; break }
 		-1073741415 { "Account type invalid"; break }
 		default { "$_"; break}
 	}
@@ -132,7 +136,7 @@ process {
 }
 
 $endTime = Get-Date
-$startTime = $endTime.AddMinutes(-$timeInterval)
+$startTime = $endTime.AddMinutes(-$TimeInterval)
 $filter = @{
 	ProviderName="Microsoft-Windows-Security-Auditing";
 	LogName="Security”;
@@ -146,25 +150,30 @@ $domainControllers = @(Get-ADDomainController -Filter * | Select-Object @{Name="
 
 $gatherErrors = @()
 $events = @($domainControllers | %{
-	$controllerName = $_
-	Write-Host Fetching from $_ ...
-	try
-	{
-		Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 -ErrorAction Stop | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
-	}
-	catch
-	{
-		if ($_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound)
+		$controllerName = $_
+		Write-Host Fetching from $_ ...
+		try
 		{
-			Write-Warning $_
-			$gatherErrors += Select-Object -InputObject $_ -Property @{Name="ControllerName"; Expression = {$controllerName}},@{Name="Status"; Expression = {$_.Exception.Message}}
+			Get-WinEvent -ComputerName $_ -FilterHashtable $filter -MaxEvents 1000 -ErrorAction Stop | ?{ $_.KeywordsDisplayNames -contains "Audit Failure" } | Format-Event
 		}
-	}
-})
+		catch
+		{
+			if ($_.CategoryInfo.Category -ne [System.Management.Automation.ErrorCategory]::ObjectNotFound)
+			{
+				Write-Warning $_
+				$gatherErrors += Select-Object -InputObject $_ -Property @{Name="ControllerName"; Expression = {$controllerName}},@{Name="Status"; Expression = {$_.Exception.Message}}
+			}
+		}
+	} | 
+	?{ -not ($IgnoreUsers -contains $_.UserName) }
+)
 
-if ($mailTo -eq "")
+if ($MailTo -eq $null)
 {
-	$events | Sort-Object TimeCreated | Select-Object TimeCreated,UserName,MachineName,StatusDescription | Format-Table -AutoSize
+	$events | 
+		Sort-Object TimeCreated | 
+		Select-Object TimeCreated,UserName,MachineName,StatusDescription | 
+		Format-Table -AutoSize
 }
 else
 {
@@ -194,6 +203,6 @@ else
 		Write-Host Sending mail...
 		$mailBody = "<html>`n<head>`n<style>p,table {font-family:Verdana;font-size:10pt;} td:nth-child(4) {text-align: right;}</style>`n</head>`n<body>`n$($mailBody)`n</body>`n</html>"
 		$anonymousCredentials = New-Object System.Management.Automation.PSCredential("anonymous",(ConvertTo-SecureString -String "anonymous" -AsPlainText -Force))
-		Send-MailMessage -From $mailFrom -To ($mailTo -split ",") -Subject "W $((Get-ADDomain).DNSRoot) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
+		Send-MailMessage -From $MailFrom -To $MailTo -Subject "W $((Get-ADDomain).DNSRoot) AD" -Body $mailBody -BodyAsHTML -SmtpServer "smtp" -Credential $anonymousCredentials
 	}
 }
