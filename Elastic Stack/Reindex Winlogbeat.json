@@ -1,0 +1,37 @@
+GET /_cat/indices/winlogbeat-7.6.2-2019.03.*
+POST _reindex?wait_for_active_shards=all
+{
+  "source": {
+    "index": "winlogbeat-7.6.2-2019.03.*"
+  },
+  "dest": {
+    "index": "winlogbeat-7.6.2"
+  },
+  "script": {
+    "lang": "painless",
+    "source": "ctx._index = 'xinlogbeat-7.6.2-' + (ctx._index.substring(17, 27))"
+  }
+}
+GET /_cat/indices/xinlogbeat-7.6.2-*
+DELETE /xinlogbeat-7.6.2-*
+{
+  "script": {
+    "lang": "painless",
+    "source": "ctx._index = 'winlogbeat-7.6.2-' + (ctx._index.substring(17, 27))"
+  }
+}
+POST _reindex?wait_for_active_shards=all
+{
+  "source": {
+    "index": "xinlogbeat-7.6.2-*"
+  },
+  "dest": {
+    "index": "winlogbeat-7.6.2",
+    "type": "_doc"
+  },
+  "script": {
+    "lang": "painless",
+    "source": "ctx._index = 'winlogbeat-7.6.2-' + (ctx._index.substring(17, 27))"
+  }
+}
+DELETE /xinlogbeat-7.6.2-*
