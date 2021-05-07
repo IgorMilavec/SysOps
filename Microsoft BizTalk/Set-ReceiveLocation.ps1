@@ -26,9 +26,11 @@ if ($PSBoundParameters.ContainsKey("Status")) {
 	switch ($Status) {
 		"Enabled" {
 			$receiveLocation.Enable() | Out-Null
+			Write-Host "Receive location '$Name' has been enabled."
 		}
 		"Disabled" {
 			$receiveLocation.Disable() | Out-Null
+			Write-Host "Receive location '$Name' has been disabled."
 		}
 		default {
 			Write-Warning "The operation couldn't be performed because receive location status '$Status' isn't supported."
