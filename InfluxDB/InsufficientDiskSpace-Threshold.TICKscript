@@ -4,8 +4,8 @@ var data = stream
         .retentionPolicy('autogen')
         .measurement('disk')
         .groupBy(['host', 'path'])
-        .where(lambda: TRUE)
-    |eval(lambda: "used_percent")
+        .where(lambda: "fstype" != 'nfs4')
+    |eval(lambda: floor("used_percent" * 100.0) / 100.0)
         .as('value')
 
 var trigger = data
@@ -21,11 +21,10 @@ var trigger = data
         .details('''
 Disk space {{ index .Tags "host" }} {{ index .Tags "path" }} is at {{ index .Fields "value" }}%.
         ''')
-        .id('Insufficient disk space - Threshold-{{.Group}}')
+        .id('Insufficient disk space - Percent-{{.Group}}')
         .idTag('alertID')
         .levelTag('level')
         .email()
-        .to('...')
 
 trigger
     |eval(lambda: float("value"))
