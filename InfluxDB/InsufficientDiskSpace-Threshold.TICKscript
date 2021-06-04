@@ -1,0 +1,43 @@
+var data = stream
+    |from()
+        .database('telegraf')
+        .retentionPolicy('autogen')
+        .measurement('disk')
+        .groupBy(['host', 'path'])
+        .where(lambda: TRUE)
+    |eval(lambda: "used_percent")
+        .as('value')
+
+var trigger = data
+    |alert()
+        .infoReset(lambda: "value" < 75)
+        .info(lambda: "value" > 80)
+        .warnReset(lambda: "value" < 85)
+        .warn(lambda: "value" > 90)
+        .critReset(lambda: "value" < 93)
+        .crit(lambda: "value" > 95)
+        .stateChangesOnly(1h)
+        .message('{{.Level}} Disk {{ index .Tags "host" }} {{ index .Tags "path" }}')
+        .details('''
+Disk space {{ index .Tags "host" }} {{ index .Tags "path" }} is at {{ index .Fields "value" }}%.
+        ''')
+        .id('Insufficient disk space - Threshold-{{.Group}}')
+        .idTag('alertID')
+        .levelTag('level')
+        .email()
+        .to('...')
+
+trigger
+    |eval(lambda: float("value"))
+        .as('value')
+        .keep()
+    |influxDBOut()
+        .create()
+        .database('chronograf')
+        .retentionPolicy('autogen')
+        .measurement('alerts')
+        .tag('alertName', 'Insufficient disk space - Percent')
+        .tag('triggerType', 'threshold')
+
+trigger
+    |httpOut('output')
