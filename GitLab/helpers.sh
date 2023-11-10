@@ -16,8 +16,21 @@ get_group_subgroups() {
 	done
 }
 
+get_group_and_subgroups() {
+	for g in $(__get_parameter_list $1); do
+		echo $g
+		glab api $g/descendant_groups --paginate | jq -r '.[] | "groups/\(.id)"'
+	done
+}
+
 get_group_projects() {
 	for g in $(__get_parameter_list $1); do
-		glab api $g/projects --paginate | jq -r '.[] | "projects/\(.id)"'
+		glab api "$g/projects?archived=false" --paginate | jq -r '.[] | "projects/\(.id)"'
+	done
+}
+
+get_merge_requests() {
+	for p in $(__get_parameter_list $1); do
+		glab api $p/merge_requests$2 | jq '.[] | .iid' 
 	done
 }
